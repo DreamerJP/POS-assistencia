@@ -1,0 +1,23 @@
+{
+    "version": "1.1",
+    "download_url": "https://github.com/DreamerJP/POS-assitencia/raw/refs/heads/main/POS.exe",
+    "changelog": {
+        "1.1": [
+            "Interface minimalista redesenhada",
+            "Validação visual de campos obrigatórios",
+            "Melhorias na edição de pendências",
+            "Otimização de performance"
+        ],
+        "1.0": [
+            "Sistema de pendências implementado",
+            "Geração automática de arquivos GPS",
+            "Validação de campos em tempo real"
+        ]
+    },
+    "release_date": "2025-08-02",
+    "minimum_requirements": {
+        "os": "Windows 7+",
+        "ram": "512 MB",
+        "storage": "50 MB"
+    }
+}
