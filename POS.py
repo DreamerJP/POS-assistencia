@@ -29,9 +29,12 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QInputDialog,
     QScrollArea,
+    QMenuBar,
+    QMenu,
 )
-from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QFont, QPalette, QColor, QIcon
+from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QAction
+from PyQt6.QtCore import Qt, QSettings, QTimer
+from updater import Updater
 
 
 class DetalhePendenciaDialog(QDialog):
@@ -128,8 +131,19 @@ class ChecklistApp(QMainWindow):
         self.pendencias_file = "checklist_pendencias.json"
         self.pendencias = self.carregar_pendencias()
         self.carregando_tabela = False  # Flag para controlar eventos durante carregamento
+        
+        # Configuração do sistema de atualização
+        self.current_version = "1.1"
+        self.updater = Updater(
+            current_version=self.current_version,
+            version_url="https://raw.githubusercontent.com/DreamerJP/POS-assistencia/refs/heads/main/version.json"
+        )
+        
         self.initUI()
         self.load_settings()
+        
+        # Verificar atualizações na inicialização (após 2 segundos)
+        QTimer.singleShot(2000, self.check_updates_on_startup)
 
     def carregar_pendencias(self):
         """Carrega as pendências do arquivo JSON"""
@@ -161,7 +175,7 @@ class ChecklistApp(QMainWindow):
         self.settings.setValue("geometry", self.saveGeometry())
 
     def initUI(self):
-        self.setWindowTitle("Check-list Pós-Instalação - Fibra Óptica")
+        self.setWindowTitle("Check-list Pós-Instalação - Fibra Óptica v" + self.current_version)
         # Tamanho inicial menor e mais apropriado
         self.setGeometry(100, 100, 900, 700)
         self.setMinimumSize(700, 500)
@@ -170,6 +184,9 @@ class ChecklistApp(QMainWindow):
         icon_path = "C:\\Users\\Sweet\\Desktop\\POS instalação CheckList\\ico.ico"
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
+
+        # Criar barra de menus
+        self.create_menu_bar()
 
         # Estilo minimalista com paleta monocromática
         self.setStyleSheet(
@@ -1883,6 +1900,170 @@ class ChecklistApp(QMainWindow):
             self.salvar_pendencias()
             self.atualizar_lista_pendencias()
             self.mostrar_sucesso("Pendência marcada como finalizada!")
+
+    def create_menu_bar(self):
+        """Cria a barra de menus com opção de atualização"""
+        menubar = self.menuBar()
+        
+        # Menu Ajuda
+        help_menu = menubar.addMenu("Ajuda")
+        
+        # Ação para verificar atualizações
+        check_update_action = QAction("Verificar Atualizações", self)
+        check_update_action.setShortcut("Ctrl+U")
+        check_update_action.setStatusTip("Verificar se há atualizações disponíveis")
+        check_update_action.triggered.connect(self.manual_update_check)
+        help_menu.addAction(check_update_action)
+        
+        # Separador
+        help_menu.addSeparator()
+        
+        # Ação para informações sobre
+        about_action = QAction("Sobre", self)
+        about_action.setStatusTip("Informações sobre o aplicativo")
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+
+    def check_updates_on_startup(self):
+        """Verifica atualizações automaticamente na inicialização"""
+        try:
+            version_info = self.updater.check_for_updates()
+            if version_info:
+                self.prompt_update(version_info)
+        except Exception as e:
+            print(f"Erro na verificação automática: {e}")
+
+    def manual_update_check(self):
+        """Verificação manual de atualizações (para menu)"""
+        try:
+            self.mostrar_sucesso("Verificando atualizações...")
+            version_info = self.updater.check_for_updates()
+            if version_info:
+                self.prompt_update(version_info)
+            else:
+                self.mostrar_sucesso("Você já possui a versão mais recente!")
+        except Exception as e:
+            self.mostrar_erro(f"Erro ao verificar atualizações: {e}")
+
+    def prompt_update(self, version_info):
+        """Pergunta ao usuário se deseja atualizar"""
+        # Formatar changelog
+        changelog_text = ""
+        if "changelog" in version_info:
+            changelog = version_info["changelog"]
+            if isinstance(changelog, dict):
+                # Se changelog é um dicionário com versões
+                for version, changes in changelog.items():
+                    if version == version_info["version"]:
+                        changelog_text = "\n".join([f"• {change}" for change in changes])
+                        break
+            else:
+                # Se changelog é uma string simples
+                changelog_text = changelog
+        
+        message = f"""Nova versão disponível!
+
+Versão atual: {self.current_version}
+Nova versão: {version_info['version']}
+
+Changelog:
+{changelog_text}
+
+Deseja atualizar agora?"""
+        
+        resposta = self.mostrar_pergunta(
+            "Atualização Disponível",
+            message
+        )
+        
+        if resposta == QMessageBox.StandardButton.Yes:
+            self.updater.download_and_install(version_info["download_url"])
+
+    def show_about(self):
+        """Mostra informações sobre o aplicativo"""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        
+        # Criar diálogo personalizado
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle("Sobre")
+        about_dialog.setModal(True)
+        about_dialog.setFixedSize(400, 300)
+        
+        layout = QVBoxLayout(about_dialog)
+        
+        # Título
+        title_label = QLabel("Check-list Pós-Instalação - Fibra Óptica")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        title_label.setStyleSheet("color: #2c3e50; margin: 10px;")
+        layout.addWidget(title_label)
+        
+        # Versão
+        version_label = QLabel(f"Versão: {self.current_version}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setStyleSheet("color: #495057; margin: 5px;")
+        layout.addWidget(version_label)
+        
+        # Descrição
+        desc_label = QLabel("Desenvolvido para facilitar o processo de\npós-instalação de fibra óptica.")
+        desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #495057; margin: 10px;")
+        layout.addWidget(desc_label)
+        
+        # Separador
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #dee2e6; margin: 10px;")
+        layout.addWidget(separator)
+        
+        # Desenvolvedor
+        dev_label = QLabel("Desenvolvedor: DreamerJP")
+        dev_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dev_label.setStyleSheet("color: #495057; margin: 5px;")
+        layout.addWidget(dev_label)
+        
+        # Link GitHub (clicável)
+        github_label = QLabel('<a href="https://github.com/DreamerJP" style="color: #007bff; text-decoration: none;">GitHub: https://github.com/DreamerJP</a>')
+        github_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        github_label.setOpenExternalLinks(True)
+        github_label.setStyleSheet("margin: 5px;")
+        github_label.linkActivated.connect(lambda url: QDesktopServices.openUrl(QUrl(url)))
+        layout.addWidget(github_label)
+        
+        # Copyright
+        copyright_label = QLabel("© 2025 - Sistema de Atualização Automática")
+        copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        copyright_label.setStyleSheet("color: #6c757d; margin: 10px; font-size: 10px;")
+        layout.addWidget(copyright_label)
+        
+        # Botão OK
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(about_dialog.accept)
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 20px;
+                font-size: 11px;
+                font-weight: 600;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(ok_button)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+        
+        about_dialog.exec()
 
     def closeEvent(self, event):
         """Salva as configurações quando a janela é fechada"""

@@ -15,7 +15,7 @@ class Updater:
     def __init__(self, current_version, version_url=None):
         self.current_version = current_version
         # URL do arquivo version.json no GitHub
-        self.version_url = version_url or "https://raw.githubusercontent.com/DreamerJP/POS-assitencia/main/version.json"
+        self.version_url = version_url or "https://raw.githubusercontent.com/DreamerJP/POS-assistencia/refs/heads/main/version.json"
     
     def check_for_updates(self):
         """
