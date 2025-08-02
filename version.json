@@ -1,7 +1,14 @@
 {
-    "version": "1.1",
+    "version": "1.2",
     "download_url": "https://github.com/DreamerJP/POS-assitencia/raw/refs/heads/main/POS.exe",
     "changelog": {
+        "1.2": [
+            "Sistema de atualização automática implementado",
+            "Barra de menus adicionada com seção Ajuda",
+            "Verificação automática de atualizações na inicialização",
+            "Interface melhorada com validação visual de campos",
+            "Melhorias na gestão de pendências"
+        ],
         "1.1": [
             "Interface minimalista redesenhada",
             "Validação visual de campos obrigatórios",
@@ -14,10 +21,10 @@
             "Validação de campos em tempo real"
         ]
     },
-    "release_date": "2025-08-02",
+    "release_date": "2025-01-27",
     "minimum_requirements": {
         "os": "Windows 7+",
         "ram": "512 MB",
         "storage": "50 MB"
     }
-}
+} 
