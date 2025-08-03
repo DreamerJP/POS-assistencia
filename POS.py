@@ -181,7 +181,7 @@ class ChecklistApp(QMainWindow):
         self.setMinimumSize(700, 500)
 
         # Set the window icon
-        icon_path = "C:\\Users\\Sweet\\Desktop\\POS instalação CheckList\\ico.ico"
+        icon_path = r"D:\Arquivos BKP\Softwares\Meus projetos\POS Instalacao CheckList\v1.2\ico.ico"
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 

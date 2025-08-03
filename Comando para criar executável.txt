@@ -1,1 +1,1 @@
-pyinstaller --onefile --windowed --icon="C:\Users\Sweet\Desktop\POS instalação CheckList\ico.ico" "POS.py"
+pyinstaller --onefile --windowed --icon="D:\Arquivos BKP\Softwares\Meus projetos\POS Instalacao CheckList\v1.2\ico.ico" "POS.py"
