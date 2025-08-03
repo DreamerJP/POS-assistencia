@@ -133,7 +133,7 @@ class ChecklistApp(QMainWindow):
         self.carregando_tabela = False  # Flag para controlar eventos durante carregamento
         
         # Configuração do sistema de atualização
-        self.current_version = "1.1"
+        self.current_version = "1.2"
         self.updater = Updater(
             current_version=self.current_version,
             version_url="https://raw.githubusercontent.com/DreamerJP/POS-assistencia/refs/heads/main/version.json"
@@ -1936,7 +1936,6 @@ class ChecklistApp(QMainWindow):
     def manual_update_check(self):
         """Verificação manual de atualizações (para menu)"""
         try:
-            self.mostrar_sucesso("Verificando atualizações...")
             version_info = self.updater.check_for_updates()
             if version_info:
                 self.prompt_update(version_info)
@@ -1961,13 +1960,22 @@ class ChecklistApp(QMainWindow):
                 # Se changelog é uma string simples
                 changelog_text = changelog
         
-        message = f"""Nova versão disponível!
+        # Construir mensagem com changelog
+        if changelog_text:
+            message = f"""Nova versão disponível!
 
 Versão atual: {self.current_version}
 Nova versão: {version_info['version']}
 
 Changelog:
 {changelog_text}
+
+Deseja atualizar agora?"""
+        else:
+            message = f"""Nova versão disponível!
+
+Versão atual: {self.current_version}
+Nova versão: {version_info['version']}
 
 Deseja atualizar agora?"""
         
@@ -1977,7 +1985,7 @@ Deseja atualizar agora?"""
         )
         
         if resposta == QMessageBox.StandardButton.Yes:
-            self.updater.download_and_install(version_info["download_url"])
+            self.updater.download_and_install(version_info["download_url"], self)
 
     def show_about(self):
         """Mostra informações sobre o aplicativo"""

@@ -4,7 +4,81 @@ import time
 import tempfile
 import requests
 import subprocess
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QApplication
+from PyQt6.QtCore import QThread, pyqtSignal, Qt
+
+
+class DownloadThread(QThread):
+    """
+    Thread para download em background com progresso
+    """
+    progress_updated = pyqtSignal(int)
+    download_completed = pyqtSignal(str)
+    download_failed = pyqtSignal(str)
+    download_cancelled = pyqtSignal()
+    
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+        self._cancelled = False
+        
+    def run(self):
+        try:
+            response = requests.get(self.url, timeout=30, stream=True)
+            response.raise_for_status()
+            
+            # Obter tamanho total do arquivo
+            total_size = int(response.headers.get('content-length', 0))
+            
+            # Salvar em arquivo temporário
+            with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as temp_file:
+                downloaded_size = 0
+                
+                for chunk in response.iter_content(chunk_size=8192):
+                    # Verificar se foi cancelado
+                    if self._cancelled:
+                        temp_file.close()
+                        os.unlink(temp_file.name)  # Deletar arquivo temporário
+                        self.download_cancelled.emit()
+                        return
+                    
+                    if chunk:
+                        temp_file.write(chunk)
+                        downloaded_size += len(chunk)
+                        
+                        # Calcular e emitir progresso
+                        if total_size > 0:
+                            progress = int((downloaded_size / total_size) * 100)
+                            self.progress_updated.emit(progress)
+                
+                # Verificar se foi cancelado antes de finalizar
+                if self._cancelled:
+                    temp_file.close()
+                    os.unlink(temp_file.name)  # Deletar arquivo temporário
+                    self.download_cancelled.emit()
+                    return
+                
+                temp_file.flush()
+                file_path = temp_file.name
+                
+                # Verificar se arquivo foi salvo corretamente
+                if not os.path.exists(file_path):
+                    self.download_failed.emit("Falha ao salvar arquivo temporário")
+                    return
+                
+                file_size = os.path.getsize(file_path)
+                if file_size == 0:
+                    self.download_failed.emit("Arquivo baixado está vazio")
+                    return
+                
+                self.download_completed.emit(file_path)
+                
+        except Exception as e:
+            self.download_failed.emit(str(e))
+    
+    def cancel(self):
+        """Cancela o download"""
+        self._cancelled = True
 
 
 class Updater:
@@ -41,27 +115,77 @@ class Updater:
             print(f"Erro ao verificar atualizações: {e}")
             return None
     
-    def download_and_install(self, download_url):
+    def download_and_install(self, download_url, parent_widget=None):
         """
-        Faz o download do novo executável e executa a substituição.
+        Faz o download do novo executável e executa a substituização.
         
         Args:
             download_url (str): URL para download do novo executável.
+            parent_widget: Widget pai para a janela de progresso.
         """
         try:
             current_exe = sys.executable
             print(f"[DEBUG] Caminho atual: {current_exe}")
             
-            # Download do novo executável
-            print("Baixando atualização...")
-            response = requests.get(download_url, timeout=30)
-            response.raise_for_status()
+            # Criar janela de progresso
+            progress_dialog = QProgressDialog("Baixando atualização...", "Cancelar", 0, 100, parent_widget)
+            progress_dialog.setWindowTitle("Atualização")
+            progress_dialog.setModal(True)
+            progress_dialog.setAutoClose(False)
+            progress_dialog.setAutoReset(False)
+            progress_dialog.setMinimumDuration(0)
             
-            # Salva em arquivo temporário
-            with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as temp_file:
-                temp_file.write(response.content)
-                new_exe_path = temp_file.name
-                print(f"[DEBUG] Novo executável salvo em: {new_exe_path}")
+            # Criar thread de download
+            download_thread = DownloadThread(download_url)
+            
+            def on_progress(progress):
+                progress_dialog.setValue(progress)
+                progress_dialog.setLabelText("Baixando atualização...")
+            
+            def on_completed(file_path):
+                progress_dialog.close()
+                print(f"[DEBUG] Download concluído: {file_path}")
+                self._install_update(current_exe, file_path)
+            
+            def on_failed(error):
+                progress_dialog.close()
+                print(f"[DEBUG] Download falhou: {error}")
+                QMessageBox.critical(parent_widget, "Erro de Download", f"Falha ao baixar atualização: {error}")
+            
+            def on_cancelled():
+                progress_dialog.close()
+                print("[DEBUG] Download cancelado pelo usuário")
+            
+            def on_cancel_clicked():
+                download_thread.cancel()
+            
+            # Conectar sinais
+            download_thread.progress_updated.connect(on_progress)
+            download_thread.download_completed.connect(on_completed)
+            download_thread.download_failed.connect(on_failed)
+            download_thread.download_cancelled.connect(on_cancelled)
+            
+            # Conectar cancelamento do diálogo
+            progress_dialog.canceled.connect(on_cancel_clicked)
+            
+            # Iniciar download
+            download_thread.start()
+            progress_dialog.exec()
+            
+        except Exception as e:
+            print(f"Falha crítica na atualização: {str(e)}")
+            QMessageBox.critical(parent_widget, "Erro de Atualização", f"Detalhes: {str(e)}")
+    
+    def _install_update(self, current_exe, new_exe_path):
+        """
+        Instala a atualização após o download.
+        
+        Args:
+            current_exe (str): Caminho do executável atual.
+            new_exe_path (str): Caminho do novo executável.
+        """
+        try:
+            print(f"[DEBUG] Tamanho do arquivo: {os.path.getsize(new_exe_path)} bytes")
             
             # Gera e valida script de atualização
             bat_content = self.generate_bat_script(current_exe, new_exe_path)
@@ -69,13 +193,12 @@ class Updater:
             
             # Executa script de atualização
             print("Iniciando processo de atualização...")
-            subprocess.Popen(
-                [bat_path],
-                shell=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            print(f"[DEBUG] Executando script: {bat_path}")
+            print(f"[DEBUG] Executável atual: {current_exe}")
+            print(f"[DEBUG] Novo executável: {new_exe_path}")
+            
+            # Executar script
+            subprocess.Popen([bat_path], shell=True)
             
             # Aguarda um momento para o script iniciar
             time.sleep(2)
@@ -83,12 +206,9 @@ class Updater:
             # Encerra aplicação atual
             sys.exit(0)
             
-        except requests.RequestException as e:
-            print(f"Erro de download: {str(e)}")
-            QMessageBox.critical(None, "Erro de Download", f"Falha ao baixar atualização: {str(e)}")
         except Exception as e:
-            print(f"Falha crítica na atualização: {str(e)}")
-            QMessageBox.critical(None, "Erro de Atualização", f"Detalhes: {str(e)}")
+            print(f"Falha na instalação: {str(e)}")
+            QMessageBox.critical(None, "Erro de Instalação", f"Detalhes: {str(e)}")
     
     def generate_bat_script(self, old_exe, new_exe):
         """
@@ -105,74 +225,89 @@ class Updater:
         new_exe = os.path.normpath(os.path.abspath(new_exe))
         
         return f"""@echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
-
-:: === DADOS DO PROCESSO ===
-set "OLD_EXE={old_exe}"
-set "NEW_EXE={new_exe}"
-
-echo Iniciando processo de atualizacao...
-
-:: === ENCERRAMENTO DO PROCESSO ===
-for %%I in ("%OLD_EXE%") do set "EXE_NAME=%%~nxI"
-echo Encerrando processo: !EXE_NAME!
-taskkill /IM "!EXE_NAME!" /F >nul 2>&1
-
-:: === VALIDACAO DOS ARQUIVOS ===
-if not exist "%OLD_EXE%" (
-    echo ERRO: Executavel original nao encontrado
-    echo Caminho: %OLD_EXE%
-    pause
-    exit /b 1
-)
-
-if not exist "%NEW_EXE%" (
-    echo ERRO: Novo executavel nao encontrado
-    echo Caminho: %NEW_EXE%
-    pause
-    exit /b 1
-)
-
-:: === PROCESSO DE SUBSTITUICAO ===
-echo Substituindo executavel...
-set "MAX_TENTATIVAS=10"
-
-:loop_substituicao
-if !MAX_TENTATIVAS! LEQ 0 (
-    echo ERRO: Numero maximo de tentativas excedido
-    pause
-    exit /b 1
-)
-
-del /F /Q "%OLD_EXE%" >nul 2>&1
-
-if exist "%OLD_EXE%" (
-    echo Aguardando liberacao do arquivo... (Tentativa: !MAX_TENTATIVAS!)
-    timeout /t 1 /nobreak >nul
-    set /a MAX_TENTATIVAS-=1
-    goto loop_substituicao
-)
-
-:: === MOVIMENTACAO DO ARQUIVO ===
-move /Y "%NEW_EXE%" "%OLD_EXE%" >nul
-if %ERRORLEVEL% NEQ 0 (
-    echo ERRO: Falha ao mover novo executavel
-    pause
-    exit /b 1
-)
-
-:: === REINICIALIZACAO ===
-echo Atualizacao concluida! Reiniciando aplicacao...
-timeout /t 2 /nobreak >nul
-start "" "%OLD_EXE%"
-
-:: === LIMPEZA ===
-timeout /t 3 /nobreak >nul
-del /F /Q "%~f0" >nul 2>&1
-
-exit /b 0
-"""
+ setlocal enabledelayedexpansion
+ 
+ :: === DADOS DO PROCESSO ===
+ set "OLD_EXE={old_exe}"
+ set "NEW_EXE={new_exe}"
+ 
+ echo Iniciando processo de atualizacao...
+ 
+ :: === ENCERRAMENTO DO PROCESSO ===
+ for %%I in ("%OLD_EXE%") do set "EXE_NAME=%%~nxI"
+ echo Encerrando processo: !EXE_NAME!
+ taskkill /IM "!EXE_NAME!" /F >nul 2>&1
+ 
+ :: === AGUARDAR PROCESSO ENCERRAR ===
+ timeout /t 3 /nobreak >nul
+ 
+ :: === VALIDACAO DOS ARQUIVOS ===
+ if not exist "%NEW_EXE%" (
+     echo ERRO: Novo executavel nao encontrado
+     echo Caminho: %NEW_EXE%
+     pause
+     exit /b 1
+ )
+ 
+ :: === PROCESSO DE SUBSTITUICAO ===
+ echo Substituindo executavel...
+ 
+ :: Obter diretório de destino
+ for %%I in ("%OLD_EXE%") do set "TARGET_DIR=%%~dpI"
+ 
+ :: Deletar arquivo antigo se existir
+ if exist "%OLD_EXE%" (
+     del /F /Q "%OLD_EXE%" >nul 2>&1
+     timeout /t 2 /nobreak >nul
+ )
+ 
+ :: Copiar novo executável diretamente
+ copy /Y "%NEW_EXE%" "%OLD_EXE%" >nul 2>&1
+ if %ERRORLEVEL% EQU 0 (
+     echo Copia realizada com sucesso
+     goto reiniciar
+ )
+ 
+ :: Se copia falhou, tentar mover
+ move /Y "%NEW_EXE%" "%OLD_EXE%" >nul 2>&1
+ if %ERRORLEVEL% EQU 0 (
+     echo Movimento realizado com sucesso
+     goto reiniciar
+ )
+ 
+ echo ERRO: Falha ao copiar executavel
+ pause
+ exit /b 1
+ 
+ :reiniciar
+ :: === REINICIALIZACAO ===
+ echo Atualizacao concluida! Reiniciando aplicacao...
+ timeout /t 2 /nobreak >nul
+ 
+ :: Tentar iniciar o aplicativo
+ start "" "%OLD_EXE%"
+ if %ERRORLEVEL% NEQ 0 (
+     echo ERRO: Falha ao reiniciar aplicacao
+     echo Tentando executar diretamente...
+     "%OLD_EXE%"
+ )
+ 
+ :: === LIMPEZA ===
+ echo Limpando arquivos temporarios...
+ timeout /t 2 /nobreak >nul
+ 
+ :: Deletar apenas o arquivo temporário específico que foi baixado
+ if exist "%NEW_EXE%" (
+     echo Deletando arquivo temporario: %NEW_EXE%
+     del /F /Q "%NEW_EXE%" >nul 2>&1
+ )
+ 
+ :: Deletar o próprio script BAT
+ del /F /Q "%~f0" >nul 2>&1
+ 
+ echo Limpeza concluida!
+ exit /b 0
+ """
     
     def write_and_validate_bat(self, content, old_exe, new_exe):
         """
@@ -190,13 +325,13 @@ exit /b 0
         new_exe = os.path.normpath(os.path.abspath(new_exe))
         bat_path = os.path.join(tempfile.gettempdir(), "update_script.bat")
         
-        # Escreve com codificação UTF-8 com BOM
+        # Escreve com codificação ANSI (sem BOM) para compatibilidade com Windows
         try:
-            with open(bat_path, "w", encoding="utf-8-sig") as f:
+            with open(bat_path, "w", encoding="cp1252") as f:
                 f.write(content)
             
             # Validação crítica
-            with open(bat_path, "r", encoding="utf-8-sig") as f:
+            with open(bat_path, "r", encoding="cp1252") as f:
                 content_read = f.read()
                 if old_exe not in content_read or new_exe not in content_read:
                     raise ValueError("Falha na validação do script de atualização")
