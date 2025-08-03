@@ -1,6 +1,6 @@
 {
     "version": "1.2",
-    "download_url": "https://github.com/DreamerJP/POS-assistencia/raw/refs/heads/main/POS.exe",
+    "download_url": "https://github.com/DreamerJP/POS-assistencia/releases/download/v1.2/POS.exe",
     "changelog": {
         "1.2": [
             "Sistema de atualização automática implementado",
