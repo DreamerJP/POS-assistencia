@@ -37,6 +37,14 @@ from PyQt6.QtCore import Qt, QSettings, QTimer
 from updater import Updater
 
 
+def get_resource_path(filename):
+    """Retorna o caminho para um arquivo de recurso"""
+    if hasattr(sys, '_MEIPASS'):  # Se estiver rodando como executável PyInstaller
+        return os.path.join(sys._MEIPASS, filename)
+    else:  # Se estiver rodando como script Python
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+
+
 class DetalhePendenciaDialog(QDialog):
     def __init__(self, dados_pendencia, parent=None):
         super().__init__(parent)
@@ -190,14 +198,16 @@ class ChecklistApp(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Check-list Pós-Instalação - Fibra Óptica v" + self.current_version)
-        # Tamanho inicial menor e mais apropriado
         self.setGeometry(100, 100, 900, 700)
         self.setMinimumSize(700, 500)
-
-        # Set the window icon
-        icon_path = r"D:\Arquivos BKP\Softwares\Meus projetos\POS Instalacao CheckList\v1.2\ico.ico"
+        
+        # Configurar ícone da janela
+        icon_path = get_resource_path("ico.ico")
+        
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
+        else:
+            print(f"Ícone não encontrado em: {icon_path}")  # Para debug
 
         # Criar barra de menus
         self.create_menu_bar()
