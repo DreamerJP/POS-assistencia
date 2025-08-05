@@ -1,6 +1,6 @@
 {
     "version": "1.3",
-    "download_url": "https://github.com/DreamerJP/POS-assistencia/raw/refs/heads/main/POS.exe",
+    "download_url": "https://github.com/DreamerJP/POS-assistencia/releases/download/v1.3/POS.exe",
     "changelog": {
         "1.3": [
             "Sistema de dropdown para seleção de técnicos implementado",
