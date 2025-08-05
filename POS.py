@@ -129,11 +129,15 @@ class ChecklistApp(QMainWindow):
         super().__init__()
         self.settings = QSettings("ChecklistFibra", "WindowSettings")
         self.pendencias_file = "checklist_pendencias.json"
-        self.pendencias = self.carregar_pendencias()
+        self.data = self.carregar_pendencias()
+        self.pendencias = self.data.get("pendencias", [])
+        self.tecnicos = self.data.get("tecnicos", ["Anderson", "Gallina", "Larazin", "Bruno", "Daniel", "Evandro", "Gilberto"])
+        self.next_id = self.data.get("next_id", 1)  # Contador para IDs únicos
         self.carregando_tabela = False  # Flag para controlar eventos durante carregamento
+        self.pendencia_editando_id = None  # ID da pendência sendo editada
         
         # Configuração do sistema de atualização
-        self.current_version = "1.2"
+        self.current_version = "1.3"
         self.updater = Updater(
             current_version=self.current_version,
             version_url="https://raw.githubusercontent.com/DreamerJP/POS-assistencia/refs/heads/main/version.json"
@@ -150,16 +154,26 @@ class ChecklistApp(QMainWindow):
         try:
             if os.path.exists(self.pendencias_file):
                 with open(self.pendencias_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Se o arquivo tem estrutura antiga (só lista de pendências)
+                    if isinstance(data, list):
+                        return {"pendencias": data, "tecnicos": [], "next_id": 1}
+                    # Se já tem a nova estrutura
+                    return data
         except Exception as e:
             print(f"Erro ao carregar pendências: {e}")
-        return []
+        return {"pendencias": [], "tecnicos": [], "next_id": 1}
 
     def salvar_pendencias(self):
         """Salva as pendências no arquivo JSON"""
         try:
+            # Atualizar dados com pendências, técnicos e next_id
+            self.data["pendencias"] = self.pendencias
+            self.data["tecnicos"] = self.tecnicos
+            self.data["next_id"] = self.next_id
+                
             with open(self.pendencias_file, "w", encoding="utf-8") as f:
-                json.dump(self.pendencias, f, ensure_ascii=False, indent=2)
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
             print(f"DEBUG: Pendências salvas com sucesso. Total: {len(self.pendencias)}")
         except Exception as e:
             self.mostrar_erro(f"Erro ao salvar pendências: {str(e)}")
@@ -408,8 +422,10 @@ class ChecklistApp(QMainWindow):
 
         # Nome do técnico
         info_layout.addWidget(QLabel("Técnico:"), 0, 0)
-        self.input_nome_tecnico = QLineEdit()
-        self.input_nome_tecnico.setPlaceholderText("Nome do técnico")
+        self.input_nome_tecnico = QComboBox()
+        self.input_nome_tecnico.setPlaceholderText("Selecione o técnico")
+        self.input_nome_tecnico.setEditable(True)
+        self.input_nome_tecnico.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         info_layout.addWidget(self.input_nome_tecnico, 0, 1)
 
         # Observações mais compactas
@@ -653,6 +669,9 @@ class ChecklistApp(QMainWindow):
         tab_layout.setContentsMargins(0, 0, 0, 0)
         tab_layout.addWidget(scroll_area)
 
+        # Carregar técnicos no dropdown
+        self.carregar_tecnicos_dropdown()
+        
         # Conectar eventos de validação
         self.conectar_eventos_validacao()
         self.validar_e_atualizar_bordas()
@@ -747,10 +766,53 @@ class ChecklistApp(QMainWindow):
             """
             )
 
+    def carregar_tecnicos_dropdown(self):
+        """Carrega os técnicos no dropdown em ordem alfabética"""
+        self.input_nome_tecnico.clear()
+        self.input_nome_tecnico.addItem("Selecione o técnico...")
+        
+        # Ordenar técnicos alfabeticamente
+        tecnicos_ordenados = sorted(self.tecnicos)
+        
+        for tecnico in tecnicos_ordenados:
+            self.input_nome_tecnico.addItem(tecnico)
+
+    def adicionar_tecnico(self):
+        """Adiciona um novo técnico à lista"""
+        from PyQt6.QtWidgets import QInputDialog
+        
+        nome, ok = QInputDialog.getText(
+            self, 
+            "Adicionar Técnico", 
+            "Digite o nome do técnico:"
+        )
+        
+        if ok and nome.strip():
+            nome = nome.strip()
+            if nome not in self.tecnicos:
+                self.tecnicos.append(nome)
+                # Ordenar e salvar
+                self.tecnicos.sort()
+                self.salvar_tecnicos()
+                self.carregar_tecnicos_dropdown()
+                self.mostrar_sucesso(f"Técnico '{nome}' adicionado com sucesso!")
+            else:
+                self.mostrar_aviso("Este técnico já existe na lista!")
+
+    def salvar_tecnicos(self):
+        """Salva a lista de técnicos no arquivo JSON"""
+        try:
+            self.data["tecnicos"] = self.tecnicos
+            with open(self.pendencias_file, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+            print(f"DEBUG: Técnicos salvos com sucesso. Total: {len(self.tecnicos)}")
+        except Exception as e:
+            self.mostrar_erro(f"Erro ao salvar técnicos: {str(e)}")
+
     def validar_e_atualizar_bordas(self):
         """Valida todos os campos e atualiza suas bordas"""
         # Nome do técnico
-        nome_preenchido = bool(self.input_nome_tecnico.text().strip())
+        nome_preenchido = bool(self.input_nome_tecnico.currentText().strip()) and self.input_nome_tecnico.currentIndex() > 0
         self.atualizar_borda_campo(self.input_nome_tecnico, nome_preenchido)
 
         # Checkboxes obrigatórios
@@ -799,7 +861,7 @@ class ChecklistApp(QMainWindow):
     def conectar_eventos_validacao(self):
         """Conecta eventos para validação em tempo real"""
         # Nome do técnico
-        self.input_nome_tecnico.textChanged.connect(self.validar_e_atualizar_bordas)
+        self.input_nome_tecnico.currentTextChanged.connect(self.validar_e_atualizar_bordas)
 
         # Checkboxes
         self.check_comissao.toggled.connect(self.validar_e_atualizar_bordas)
@@ -922,20 +984,21 @@ class ChecklistApp(QMainWindow):
 
         # Tabela de pendências mais compacta
         self.tabela_pendencias = QTableWidget()
-        self.tabela_pendencias.setColumnCount(6)
+        self.tabela_pendencias.setColumnCount(7)
         self.tabela_pendencias.setHorizontalHeaderLabels(
-            ["Técnico", "Observações", "Data/Hora", "Status", "Progresso", "Ações"]
+            ["ID", "Técnico", "Observações", "Data/Hora", "Status", "Progresso", "Ações"]
         )
 
         # Configurar tabela para ser responsiva
         header = self.tabela_pendencias.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        header.resizeSection(5, 50)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # ID
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Técnico
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Observações
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Data/Hora
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Status
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Progresso
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # Ações
+        header.resizeSection(6, 50)
 
         self.tabela_pendencias.setAlternatingRowColors(True)
         self.tabela_pendencias.setSelectionBehavior(
@@ -958,7 +1021,11 @@ class ChecklistApp(QMainWindow):
     def obter_dados_formulario(self):
         """Coleta todos os dados do formulário atual incluindo observações"""
         return {
-            "nome_tecnico": self.input_nome_tecnico.text().strip(),
+            "nome_tecnico": (
+                self.input_nome_tecnico.currentText().strip()
+                if self.input_nome_tecnico.currentIndex() > 0
+                else ""
+            ),
             "observacoes": self.input_observacoes.toPlainText().strip(),
             "check_comissao": self.check_comissao.isChecked(),
             "check_ip_mac": self.check_ip_mac.isChecked(),
@@ -980,7 +1047,21 @@ class ChecklistApp(QMainWindow):
 
     def preencher_formulario(self, dados):
         """Preenche o formulário com os dados fornecidos incluindo observações"""
-        self.input_nome_tecnico.setText(dados.get("nome_tecnico", ""))
+        nome_tecnico = dados.get("nome_tecnico", "")
+        if nome_tecnico:
+            index = self.input_nome_tecnico.findText(nome_tecnico)
+            if index >= 0:
+                self.input_nome_tecnico.setCurrentIndex(index)
+            else:
+                # Se o técnico não existe na lista, adicionar
+                self.tecnicos.append(nome_tecnico)
+                self.tecnicos.sort()
+                self.carregar_tecnicos_dropdown()
+                index = self.input_nome_tecnico.findText(nome_tecnico)
+                if index >= 0:
+                    self.input_nome_tecnico.setCurrentIndex(index)
+        else:
+            self.input_nome_tecnico.setCurrentIndex(0)
         self.input_observacoes.setPlainText(dados.get("observacoes", ""))
         self.check_comissao.setChecked(dados.get("check_comissao", False))
         self.check_ip_mac.setChecked(dados.get("check_ip_mac", False))
@@ -1076,9 +1157,15 @@ class ChecklistApp(QMainWindow):
         self.tabela_pendencias.setRowCount(len(self.pendencias))
 
         for i, pendencia in enumerate(self.pendencias):
+            # ID - NÃO editável
+            id_pendencia = pendencia.get("id", "N/A")
+            id_item = QTableWidgetItem(str(id_pendencia))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.tabela_pendencias.setItem(i, 0, id_item)
+            
             # Nome do técnico
             self.tabela_pendencias.setItem(
-                i, 0, QTableWidgetItem(pendencia["nome_tecnico"])
+                i, 1, QTableWidgetItem(pendencia["nome_tecnico"])
             )
 
             # Observações - mostrar mais texto
@@ -1092,12 +1179,12 @@ class ChecklistApp(QMainWindow):
             obs_item.setToolTip(pendencia["dados"].get("observacoes", ""))
             # Permitir quebra de linha na célula
             obs_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            self.tabela_pendencias.setItem(i, 1, obs_item)
+            self.tabela_pendencias.setItem(i, 2, obs_item)
 
             # Data/Hora - NÃO editável
             data_item = QTableWidgetItem(pendencia["data_hora"])
             data_item.setFlags(data_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.tabela_pendencias.setItem(i, 2, data_item)
+            self.tabela_pendencias.setItem(i, 3, data_item)
 
             # Status - NÃO editável
             status_item = QTableWidgetItem(pendencia["status"])
@@ -1106,7 +1193,7 @@ class ChecklistApp(QMainWindow):
                 status_item.setBackground(QColor("white"))
             else:
                 status_item.setBackground(QColor("white"))
-            self.tabela_pendencias.setItem(i, 3, status_item)
+            self.tabela_pendencias.setItem(i, 4, status_item)
 
             # Progresso (contar campos preenchidos) - NÃO editável
             dados = pendencia["dados"]
@@ -1139,7 +1226,7 @@ class ChecklistApp(QMainWindow):
             progresso = f"{campos_preenchidos}/{total_campos}"
             progresso_item = QTableWidgetItem(progresso)
             progresso_item.setFlags(progresso_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.tabela_pendencias.setItem(i, 4, progresso_item)
+            self.tabela_pendencias.setItem(i, 5, progresso_item)
 
             # Link clicável minimalista
             link_detalhes = QLabel("👁️")
@@ -1173,7 +1260,7 @@ class ChecklistApp(QMainWindow):
             container_layout.addWidget(link_detalhes)
             container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-            self.tabela_pendencias.setCellWidget(i, 5, container_widget)
+            self.tabela_pendencias.setCellWidget(i, 6, container_widget)
 
         self.carregando_tabela = False  # Reabilitar eventos após carregamento
 
@@ -1201,7 +1288,7 @@ class ChecklistApp(QMainWindow):
             return
             
         # Verificar se é uma coluna editável
-        if col == 0:  # Coluna Técnico
+        if col == 1:  # Coluna Técnico
             print(f"DEBUG: Editando coluna Técnico - Row: {row}")
             novo_nome = item.text().strip()
             if novo_nome:
@@ -1218,7 +1305,7 @@ class ChecklistApp(QMainWindow):
                     # Reverter a alteração
                     item.setText(self.pendencias[row]["nome_tecnico"])
                     
-        elif col == 1:  # Coluna Observações
+        elif col == 2:  # Coluna Observações
             print(f"DEBUG: Editando coluna Observações - Row: {row}")
             nova_obs = item.text().strip()
             resposta = self.mostrar_pergunta(
@@ -1590,8 +1677,8 @@ class ChecklistApp(QMainWindow):
 
     def gerar_relatorio(self):
         # Verificar se o nome do técnico está preenchido
-        if not self.input_nome_tecnico.text().strip():
-            self.mostrar_aviso("Por favor, informe o nome do técnico!")
+        if not self.input_nome_tecnico.currentText().strip() or self.input_nome_tecnico.currentIndex() <= 0:
+            self.mostrar_aviso("Por favor, selecione o nome do técnico!")
             return
 
         # Verificar se todos os campos obrigatórios estão preenchidos
@@ -1675,7 +1762,7 @@ class ChecklistApp(QMainWindow):
         self.resultado_text.setPlainText(texto_final)
 
         # Remover pendência se existir para este técnico com as mesmas observações
-        nome_tecnico = self.input_nome_tecnico.text().strip()
+        nome_tecnico = self.input_nome_tecnico.currentText().strip()
         obs_atuais = self.input_observacoes.toPlainText().strip()
 
         for i, pendencia in enumerate(self.pendencias):
@@ -1717,7 +1804,6 @@ class ChecklistApp(QMainWindow):
 
         # Limpar campos de texto
         for field in [
-            self.input_nome_tecnico,
             self.input_senha,
             self.input_rx,
             self.input_tx,
@@ -1725,12 +1811,18 @@ class ChecklistApp(QMainWindow):
             self.input_link_gps,
         ]:
             field.clear()
+        
+        # Resetar dropdown do técnico
+        self.input_nome_tecnico.setCurrentIndex(0)
 
         # Limpar observações
         self.input_observacoes.clear()
 
         # Limpar resultado
         self.resultado_text.clear()
+        
+        # Resetar ID de edição
+        self.pendencia_editando_id = None
 
         # Atualizar bordas após limpar
         self.validar_e_atualizar_bordas()
@@ -1742,8 +1834,28 @@ class ChecklistApp(QMainWindow):
         dados = self.obter_dados_formulario()
 
         if not dados["nome_tecnico"]:
-            self.mostrar_aviso("Por favor, informe o nome do técnico!")
+            self.mostrar_aviso("Por favor, selecione o nome do técnico!")
             return
+
+        # Se estamos editando uma pendência existente
+        if self.pendencia_editando_id is not None:
+            # Encontrar e atualizar a pendência existente
+            for i, pendencia in enumerate(self.pendencias):
+                if pendencia.get("id") == self.pendencia_editando_id:
+                    self.pendencias[i]["dados"] = dados
+                    self.pendencias[i]["data_hora"] = datetime.now().strftime(
+                        "%d/%m/%Y %H:%M"
+                    )
+                    self.salvar_pendencias()
+                    self.atualizar_lista_pendencias()
+                    self.mostrar_sucesso("Pendência atualizada com sucesso!")
+                    
+                    # Limpar ID de edição
+                    self.pendencia_editando_id = None
+                    
+                    # Limpar formulário após salvar
+                    self.limpar_campos()
+                    return
 
         # Verificar se já existe uma pendência para este técnico com as mesmas observações
         for i, pendencia in enumerate(self.pendencias):
@@ -1769,12 +1881,16 @@ class ChecklistApp(QMainWindow):
                     self.salvar_pendencias()
                     self.atualizar_lista_pendencias()
                     self.mostrar_sucesso("Pendência atualizada com sucesso!")
+                    
+                    # Limpar formulário após salvar
+                    self.limpar_campos()
                     return
                 else:
                     return
 
-        # Criar nova pendência
+        # Criar nova pendência com ID único
         nova_pendencia = {
+            "id": self.next_id,
             "nome_tecnico": dados["nome_tecnico"],
             "data_hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "status": "Pendente",
@@ -1782,6 +1898,7 @@ class ChecklistApp(QMainWindow):
         }
 
         self.pendencias.append(nova_pendencia)
+        self.next_id += 1  # Incrementar ID para próxima pendência
         self.salvar_pendencias()
         self.atualizar_lista_pendencias()
 
@@ -1837,6 +1954,9 @@ class ChecklistApp(QMainWindow):
 
         # Carregar dados da pendência
         self.preencher_formulario(pendencia["dados"])
+        
+        # Definir ID da pendência sendo editada
+        self.pendencia_editando_id = pendencia.get("id")
 
         # Mudar para a aba do check-list
         self.tab_widget.setCurrentIndex(0)
@@ -1904,6 +2024,16 @@ class ChecklistApp(QMainWindow):
     def create_menu_bar(self):
         """Cria a barra de menus com opção de atualização"""
         menubar = self.menuBar()
+        
+        # Menu Técnicos
+        tecnicos_menu = menubar.addMenu("Técnicos")
+        
+        # Ação para adicionar técnico
+        add_tecnico_action = QAction("Adicionar Técnico", self)
+        add_tecnico_action.setShortcut("Ctrl+T")
+        add_tecnico_action.setStatusTip("Adicionar novo técnico à lista")
+        add_tecnico_action.triggered.connect(self.adicionar_tecnico)
+        tecnicos_menu.addAction(add_tecnico_action)
         
         # Menu Ajuda
         help_menu = menubar.addMenu("Ajuda")
@@ -2077,6 +2207,7 @@ Deseja atualizar agora?"""
         """Salva as configurações quando a janela é fechada"""
         # Verificar se há dados não salvos
         dados_atuais = self.obter_dados_formulario()
+        
         tem_dados = any(
             [
                 dados_atuais["nome_tecnico"],
