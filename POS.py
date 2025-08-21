@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QMenuBar,
     QMenu,
 )
-from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QAction
+from PyQt6.QtGui import QFont, QPalette, QColor, QIcon, QAction, QIntValidator
 from PyQt6.QtCore import Qt, QSettings, QTimer
 from updater import Updater
 
@@ -145,7 +145,7 @@ class ChecklistApp(QMainWindow):
         self.pendencia_editando_id = None  # ID da pendência sendo editada
         
         # Configuração do sistema de atualização
-        self.current_version = "1.3"
+        self.current_version = "1.4"
         self.updater = Updater(
             current_version=self.current_version,
             version_url="https://raw.githubusercontent.com/DreamerJP/POS-assistencia/refs/heads/main/version.json"
@@ -463,14 +463,27 @@ class ChecklistApp(QMainWindow):
         campos_layout.setContentsMargins(15, 20, 15, 15)
         campos_layout.setSpacing(8)
 
-        self.check_comissao = QCheckBox("1 - Comissão (120)")
+        # 1 - Comissão com valor manual
+        comissao_row = QHBoxLayout()
+        self.check_comissao = QCheckBox("1 - Comissão")
+        comissao_row.addWidget(self.check_comissao)
+        comissao_row.addStretch(1)
+        comissao_label = QLabel("Valor:")
+        comissao_row.addWidget(comissao_label)
+        self.input_comissao = QLineEdit()
+        self.input_comissao.setPlaceholderText("Valor")
+        self.input_comissao.setValidator(QIntValidator(0, 1000000, self))
+        self.input_comissao.setFixedWidth(90)
+        comissao_row.addWidget(self.input_comissao)
+        campos_layout.addLayout(comissao_row)
+
+        # Demais checkboxes
         self.check_ip_mac = QCheckBox("4 - IP/MAC OK")
         self.check_instalacao = QCheckBox("6 - Instalação Padrão")
         self.check_localizacao = QCheckBox("7 - Localização OK")
         self.check_foto_gps = QCheckBox("8 - Foto + GPS")
 
         for checkbox in [
-            self.check_comissao,
             self.check_ip_mac,
             self.check_instalacao,
             self.check_localizacao,
@@ -492,6 +505,8 @@ class ChecklistApp(QMainWindow):
                 "ONT Zyxel",
                 "ONU SUMEC + AX2",
                 "ONU SUMEC + AX3",
+                "ONU FAST + AX2",
+                "ONU FAST + AX3",
                 "ONU ZTE + AX2",
                 "ONU ZTE + AX3",
                 "ONT ZTE",
@@ -805,7 +820,6 @@ class ChecklistApp(QMainWindow):
                 self.tecnicos.sort()
                 self.salvar_tecnicos()
                 self.carregar_tecnicos_dropdown()
-                self.mostrar_sucesso(f"Técnico '{nome}' adicionado com sucesso!")
             else:
                 self.mostrar_aviso("Este técnico já existe na lista!")
 
@@ -834,6 +848,12 @@ class ChecklistApp(QMainWindow):
             and self.check_foto_gps.isChecked()
         )
         self.atualizar_borda_groupbox(self.group_campos, checkboxes_preenchidos)
+
+        # Comissão: se marcado, valor é obrigatório
+        comissao_preenchida = True
+        if self.check_comissao.isChecked():
+            comissao_preenchida = bool(self.input_comissao.text().strip())
+        self.atualizar_borda_campo(self.input_comissao, comissao_preenchida)
 
         # Comodato
         comodato_preenchido = self.combo_comodato.currentIndex() > 0
@@ -890,6 +910,7 @@ class ChecklistApp(QMainWindow):
         self.input_tx.textChanged.connect(self.validar_e_atualizar_bordas)
         self.input_nome_arquivo.textChanged.connect(self.validar_e_atualizar_bordas)
         self.input_link_gps.textChanged.connect(self.validar_e_atualizar_bordas)
+        self.input_comissao.textChanged.connect(self.validar_e_atualizar_bordas)
 
     def criar_aba_pendencias(self):
         """Cria a aba de gerenciamento de pendências"""
@@ -1038,6 +1059,7 @@ class ChecklistApp(QMainWindow):
             ),
             "observacoes": self.input_observacoes.toPlainText().strip(),
             "check_comissao": self.check_comissao.isChecked(),
+            "input_comissao": self.input_comissao.text().strip(),
             "check_ip_mac": self.check_ip_mac.isChecked(),
             "check_instalacao": self.check_instalacao.isChecked(),
             "check_localizacao": self.check_localizacao.isChecked(),
@@ -1074,6 +1096,7 @@ class ChecklistApp(QMainWindow):
             self.input_nome_tecnico.setCurrentIndex(0)
         self.input_observacoes.setPlainText(dados.get("observacoes", ""))
         self.check_comissao.setChecked(dados.get("check_comissao", False))
+        self.input_comissao.setText(dados.get("input_comissao", ""))
         self.check_ip_mac.setChecked(dados.get("check_ip_mac", False))
         self.check_instalacao.setChecked(dados.get("check_instalacao", False))
         self.check_localizacao.setChecked(dados.get("check_localizacao", False))
@@ -1310,7 +1333,6 @@ class ChecklistApp(QMainWindow):
                     print(f"DEBUG: Salvando nome do técnico: {novo_nome}")
                     self.pendencias[row]["nome_tecnico"] = novo_nome
                     self.salvar_pendencias()
-                    self.mostrar_sucesso(f"Nome do técnico atualizado para: {novo_nome}")
                 else:
                     # Reverter a alteração
                     item.setText(self.pendencias[row]["nome_tecnico"])
@@ -1325,7 +1347,6 @@ class ChecklistApp(QMainWindow):
             if resposta == QMessageBox.StandardButton.Yes:
                 self.pendencias[row]["dados"]["observacoes"] = nova_obs
                 self.salvar_pendencias()
-                self.mostrar_sucesso("Observações atualizadas com sucesso!")
             else:
                 # Reverter a alteração
                 obs_original = self.pendencias[row]["dados"].get("observacoes", "")
@@ -1357,6 +1378,7 @@ class ChecklistApp(QMainWindow):
                 dados_atuais["nome_tecnico"],
                 dados_atuais["observacoes"],
                 dados_atuais["check_comissao"],
+                dados_atuais.get("input_comissao", ""),
                 dados_atuais["check_ip_mac"],
                 dados_atuais["check_instalacao"],
                 dados_atuais["check_localizacao"],
@@ -1384,15 +1406,10 @@ class ChecklistApp(QMainWindow):
 
         # Carregar dados da pendência
         self.preencher_formulario(pendencia["dados"])
-
+        # Limpar relatório antigo após carregar dados
+        self.resultado_text.clear()
         # Mudar para a aba do check-list
         self.tab_widget.setCurrentIndex(0)
-
-        QMessageBox.information(
-            self,
-            "Sucesso",
-            f"Pendência do técnico '{pendencia['nome_tecnico']}' carregada com sucesso!",
-        )
 
     def excluir_pendencia_selecionada(self):
         """Exclui uma pendência selecionada"""
@@ -1483,7 +1500,7 @@ class ChecklistApp(QMainWindow):
             with open(caminho_arquivo, "w", encoding="utf-8") as arquivo:
                 arquivo.write(link_gps)
 
-            self.mostrar_sucesso(f"Arquivo GPS salvo com sucesso!\n{nome_completo}")
+            # Sucesso silencioso ao salvar arquivo GPS
 
         except Exception as e:
             self.mostrar_erro(f"Erro ao salvar arquivo GPS:\n{str(e)}")
@@ -1732,11 +1749,19 @@ class ChecklistApp(QMainWindow):
             self.mostrar_aviso(mensagem)
             return
 
+        # Se Comissão está marcada, valor é obrigatório
+        if self.check_comissao.isChecked() and not self.input_comissao.text().strip():
+            campos_vazios.append("1 - Valor Comissão")
+
         # Gerar relatório apenas se todos os campos estiverem preenchidos
         resultado = []
 
         # 1 - Comissão Técnico
-        resultado.append("1-COMISSÃO TÉCNICO = 120 INSTALAÇÃO FIBRA PADRÃO")
+        if self.check_comissao.isChecked():
+            valor_comissao = self.input_comissao.text().strip()
+            resultado.append(f"1-COMISSÃO TÉCNICO = {valor_comissao} INSTALAÇÃO FIBRA PADRÃO")
+        else:
+            resultado.append("1-COMISSÃO TÉCNICO = NÃO APLICÁVEL")
 
         # 2 - Comodato Cliente
         resultado.append(f"2-COMODATO CLIENTE = {self.combo_comodato.currentText()}")
@@ -1795,7 +1820,7 @@ class ChecklistApp(QMainWindow):
                     self.atualizar_lista_pendencias()
                 break
 
-        self.mostrar_sucesso("Relatório gerado com sucesso!")
+        # Sucesso silencioso ao gerar relatório
 
     def limpar_campos(self):
         # Desmarcar checkboxes
@@ -1819,6 +1844,7 @@ class ChecklistApp(QMainWindow):
             self.input_tx,
             self.input_nome_arquivo,
             self.input_link_gps,
+            self.input_comissao,
         ]:
             field.clear()
         
@@ -1837,7 +1863,7 @@ class ChecklistApp(QMainWindow):
         # Atualizar bordas após limpar
         self.validar_e_atualizar_bordas()
 
-        self.mostrar_sucesso("Todos os campos foram limpos!")
+        # Sucesso silencioso ao limpar campos
 
     def salvar_como_pendencia(self):
         """Salva o estado atual como pendência"""
@@ -1858,7 +1884,6 @@ class ChecklistApp(QMainWindow):
                     )
                     self.salvar_pendencias()
                     self.atualizar_lista_pendencias()
-                    self.mostrar_sucesso("Pendência atualizada com sucesso!")
                     
                     # Limpar ID de edição
                     self.pendencia_editando_id = None
@@ -1890,7 +1915,6 @@ class ChecklistApp(QMainWindow):
                     )
                     self.salvar_pendencias()
                     self.atualizar_lista_pendencias()
-                    self.mostrar_sucesso("Pendência atualizada com sucesso!")
                     
                     # Limpar formulário após salvar
                     self.limpar_campos()
@@ -1912,9 +1936,7 @@ class ChecklistApp(QMainWindow):
         self.salvar_pendencias()
         self.atualizar_lista_pendencias()
 
-        self.mostrar_sucesso(
-            f"Pendência salva para o técnico '{dados['nome_tecnico']}'!"
-        )
+        # Sucesso silencioso ao salvar pendência
 
         # Limpar formulário após salvar
         self.limpar_campos()
@@ -1964,6 +1986,8 @@ class ChecklistApp(QMainWindow):
 
         # Carregar dados da pendência
         self.preencher_formulario(pendencia["dados"])
+        # Limpar relatório antigo após carregar dados
+        self.resultado_text.clear()
         
         # Definir ID da pendência sendo editada
         self.pendencia_editando_id = pendencia.get("id")
@@ -1971,9 +1995,7 @@ class ChecklistApp(QMainWindow):
         # Mudar para a aba do check-list
         self.tab_widget.setCurrentIndex(0)
 
-        self.mostrar_sucesso(
-            f"Pendência do técnico '{pendencia['nome_tecnico']}' carregada com sucesso!"
-        )
+        # Sucesso silencioso ao carregar pendência
 
     def excluir_pendencia_selecionada(self):
         """Exclui uma pendência selecionada"""
@@ -1998,7 +2020,6 @@ class ChecklistApp(QMainWindow):
             del self.pendencias[row]
             self.salvar_pendencias()
             self.atualizar_lista_pendencias()
-            self.mostrar_sucesso("Pendência excluída com sucesso!")
 
     def finalizar_pendencia_selecionada(self):
         """Marca uma pendência como finalizada"""
@@ -2029,7 +2050,6 @@ class ChecklistApp(QMainWindow):
             )
             self.salvar_pendencias()
             self.atualizar_lista_pendencias()
-            self.mostrar_sucesso("Pendência marcada como finalizada!")
 
     def create_menu_bar(self):
         """Cria a barra de menus com opção de atualização"""
@@ -2080,7 +2100,7 @@ class ChecklistApp(QMainWindow):
             if version_info:
                 self.prompt_update(version_info)
             else:
-                self.mostrar_sucesso("Você já possui a versão mais recente!")
+                pass  # Sucesso silencioso quando já está atualizado
         except Exception as e:
             self.mostrar_erro(f"Erro ao verificar atualizações: {e}")
 
